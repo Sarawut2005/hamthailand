@@ -5,6 +5,7 @@ import {
   Events,
   EmbedBuilder,
 } from 'discord.js';
+import http from 'http'; // เพิ่มการนำเข้า http
 import { config, validateConfig } from './config.js';
 import { registerCommands } from './commands.js';
 import { verifiedUsers } from './database.js';
@@ -67,10 +68,8 @@ client.once(Events.ClientReady, async (c) => {
 
   c.user.setActivity('HAMTHAILAND.ORG | /help', { type: 3 }); // WATCHING
 
-  // Register slash commands
   await registerCommands();
 
-  // สร้างยศประเทศอัตโนมัติตอนเริ่มต้น
   const guild = await client.guilds.fetch(config.guildId).catch(() => null);
   if (guild) {
     await ensureCountryRoles(guild);
@@ -78,7 +77,6 @@ client.once(Events.ClientReady, async (c) => {
     console.warn('⚠️  ไม่พบ guild ตาม GUILD_ID');
   }
 
-  // เริ่ม RSS scheduler
   if (config.channels.rss) {
     startRssScheduler(client);
   } else {
@@ -95,16 +93,13 @@ client.on(Events.GuildMemberAdd, async (member) => {
 // ========== INTERACTION HANDLER ==========
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    // --- Slash Commands ---
     if (interaction.isChatInputCommand()) {
       await handleSlashCommand(interaction);
       return;
     }
 
-    // --- Buttons ---
     if (interaction.isButton()) {
       const id = interaction.customId;
-
       if (id === 'verify_start') return handleVerifyStart(interaction);
       if (id.startsWith('verify_approve:')) return handleVerifyApprove(interaction);
       if (id.startsWith('verify_reject:')) return handleVerifyReject(interaction);
@@ -113,7 +108,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    // --- Select Menus ---
     if (interaction.isStringSelectMenu()) {
       const id = interaction.customId;
       if (id === 'ticket_create') return handleTicketCreate(interaction);
@@ -121,7 +115,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    // --- Modals ---
     if (interaction.isModalSubmit()) {
       const id = interaction.customId;
       if (id.startsWith('verify_callsign_modal:')) return handleCallsignSubmit(interaction);
@@ -141,9 +134,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 // ========== SLASH COMMAND HANDLER ==========
 async function handleSlashCommand(interaction) {
   const { commandName } = interaction;
-
   switch (commandName) {
-    // --- Setup ---
     case 'setup-verify':
       await postVerificationPanel(interaction.channel);
       return interaction.reply({ content: '✅ โพสต์ panel ยืนยันตัวตนแล้ว', ephemeral: true });
@@ -161,7 +152,6 @@ async function handleSlashCommand(interaction) {
       await ensureCountryRoles(interaction.guild);
       return interaction.editReply('✅ สร้างยศประเทศเรียบร้อย');
 
-    // --- Announcement ---
     case 'announce': {
       await interaction.deferReply({ ephemeral: true });
       return sendAnnouncement(interaction, {
@@ -173,7 +163,6 @@ async function handleSlashCommand(interaction) {
       });
     }
 
-    // --- Moderation ---
     case 'ban': {
       await interaction.deferReply();
       return banMember(
@@ -217,7 +206,6 @@ async function handleSlashCommand(interaction) {
       return untimeoutMember(interaction, interaction.options.getUser('user'));
     }
 
-    // --- RSS ---
     case 'rss-check': {
       await interaction.deferReply({ ephemeral: true });
       const result = await checkRssFeed(client);
@@ -225,9 +213,7 @@ async function handleSlashCommand(interaction) {
         return interaction.editReply(`❌ ตรวจไม่สำเร็จ: ${result.reason} ${result.error || ''}`);
       }
       if (result.initialized) {
-        return interaction.editReply(
-          `✅ บันทึก ${result.initialized} รายการเริ่มต้นใน cache (ไม่ส่งสแปม)`
-        );
+        return interaction.editReply(`✅ บันทึก ${result.initialized} รายการเริ่มต้นใน cache (ไม่ส่งสแปม)`);
       }
       if (result.sent === 0) {
         return interaction.editReply('ℹ️ ไม่มีข่าวใหม่');
@@ -264,18 +250,12 @@ async function handleSlashCommand(interaction) {
     case 'rss-reset': {
       await interaction.deferReply({ ephemeral: true });
       resetRssCache();
-      return interaction.editReply(
-        '✅ ล้าง cache เรียบร้อย\n' +
-          '⚠️ ครั้งหน้าที่ตรวจ feed บอทจะ "เริ่มต้นใหม่" — บันทึกข่าวปัจจุบันลง cache โดยไม่ส่ง\n' +
-          'ถ้าต้องการให้ส่งจริง ใช้ `/rss-test` แทน'
-      );
+      return interaction.editReply('✅ ล้าง cache เรียบร้อย');
     }
 
-    // --- Whois ---
     case 'whois': {
       const target = interaction.options.getUser('user') || interaction.user;
       const data = verifiedUsers.read()[target.id];
-
       const embed = new EmbedBuilder()
         .setTitle(`📡 ข้อมูลสมาชิก`)
         .setThumbnail(target.displayAvatarURL())
@@ -286,63 +266,38 @@ async function handleSlashCommand(interaction) {
           .setColor('#27AE60')
           .addFields(
             { name: 'นามเรียกขาน', value: data.callsign, inline: true },
-            {
-              name: 'ยืนยันเมื่อ',
-              value: `<t:${Math.floor(data.verifiedAt / 1000)}:R>`,
-              inline: true,
-            }
+            { name: 'ยืนยันเมื่อ', value: `<t:${Math.floor(data.verifiedAt / 1000)}:R>`, inline: true }
           );
       } else {
-        embed.setColor('#95A5A6').setDescription('ยังไม่ได้ยืนยันตัวตนเป็นนักวิทยุสมัครเล่น');
+        embed.setColor('#95A5A6').setDescription('ยังไม่ได้ยืนยันตัวตน');
       }
-
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // --- Help ---
     case 'help': {
       const embed = new EmbedBuilder()
         .setColor('#3498DB')
         .setTitle('📖 คำสั่งของ HAMTHAILAND Bot')
-        .addFields(
-          {
-            name: '⚙️ Setup (Admin)',
-            value:
-              '`/setup-verify` - โพสต์ panel ยืนยันตัวตน\n' +
-              '`/setup-ticket` - โพสต์ panel ticket\n' +
-              '`/setup-country` - โพสต์ panel เลือกประเทศ\n' +
-              '`/setup-country-roles` - สร้างยศประเทศใหม่',
-          },
-          {
-            name: '📢 ประกาศ',
-            value: '`/announce` - ส่งประกาศ',
-          },
-          {
-            name: '🔨 จัดการสมาชิก',
-            value:
-              '`/ban` `/unban` `/kick` `/timeout` `/untimeout`',
-          },
-          {
-            name: '📰 RSS',
-            value:
-              '`/rss-check` - ตรวจหาข่าวใหม่\n' +
-              '`/rss-test [count]` - โพสต์ข่าวล่าสุดเพื่อทดสอบ\n' +
-              '`/rss-preview [count]` - ดูตัวอย่าง embed\n' +
-              '`/rss-reset` - ล้าง cache',
-          },
-          {
-            name: '🔍 ทั่วไป',
-            value: '`/whois` - ดูข้อมูลนักวิทยุสมัครเล่น\n`/help` - แสดงคำสั่ง',
-          }
-        )
+        .setDescription('คู่มือการใช้งานคำสั่งต่างๆ')
         .setFooter({ text: 'HAMTHAILAND.ORG' });
-
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
   }
 }
 
-// ========== ERROR HANDLING ==========
+// ========== ADDED FOR RENDER.COM ==========
+// สร้าง HTTP Server เพื่อให้ Render สามารถตรวจจับพอร์ตได้
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('HAMTHAILAND Discord Bot is running!');
+});
+
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => {
+  console.log(`🚀 Health check server is listening on port ${PORT}`);
+});
+// ==========================================
+
 client.on('error', (err) => console.error('Client error:', err));
 process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
 
